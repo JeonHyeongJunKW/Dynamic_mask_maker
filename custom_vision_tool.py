@@ -46,22 +46,20 @@ def Get_Fundamental(img1, img2):
     descriptor = cv2.ORB_create(2000)
     kp1,des1 = descriptor.detectAndCompute(img1,None)
     kp2,des2 = descriptor.detectAndCompute(img2, None)
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = bf.match(des1, des2)
+    bf = cv2.BFMatcher()#cv2.NORM_HAMMING, crossCheck=True
+    matches = bf.knnMatch(des1, des2, k=2)
 
-    matches = sorted(matches, key=lambda x: x.distance)
+    # matches = sorted(matches, key=lambda x: x.distance)
     pts1 =[]
     pts2 =[]
-    for i in range(len(matches)):
-        pts1.append(kp1[matches[i].queryIdx].pt)
-        pts2.append(kp2[matches[i].trainIdx].pt)
+    for m,n in matches:
+        if m.distance < 0.3 *n.distance:
+            pts1.append(kp1[m.queryIdx].pt)
+            pts2.append(kp2[m.trainIdx].pt)
 
-
-        if i==1000:
-            break
     pts1 = np.int32(pts1)
     pts2 = np.int32(pts2)
 
-    F, mask = cv2.findFundamentalMat(pts1,pts2,cv2.FM_LMEDS)
+    F, mask = cv2.findFundamentalMat(pts1,pts2,cv2.FM_8POINT)
 
     return F

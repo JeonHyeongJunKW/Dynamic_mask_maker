@@ -1,0 +1,88 @@
+import cv2
+import glob
+import numpy as np
+from custom_vision_tool import *
+import pickle
+import os
+from custom_metric import *
+from sklearn.cluster import DBSCAN
+Lambda_1 = 0#0.15
+Lambda_2 = 0.4
+Lambda_3 = 0#0.45
+sigma_c = 4.8
+sigma_g = 0.25
+sigma_h = 4.8
+Lambda_4 = Lambda_1/(Lambda_1+Lambda_2)
+Lambda_5 = Lambda_2/(Lambda_1+Lambda_2)
+Lambda_6 = 0.12
+Lambda_7 = 0.36
+Lambda_8 = 0.03
+t_r =0.6
+
+patchsize = 32 # 특징추출 및 이미지 갱신에 사용되는 패치사이즈입니다.
+
+butterfly_image = glob.glob("D:/Davis dataset/DAVIS/JPEGImages/480p/butterfly/*.jpg")
+sampled_butterfly_image = [butterfly_image[i]  for i in range(0,len(butterfly_image), 10)]#10개정도의 샘플이미지에서 장소이미지를 얻어옵니다.
+saved_color_imgs = []
+saved_imgs_gray = []
+correspondence_map = []#denseflow에 대한 매핑입니다.
+lab_images = [] # lab mean feature에 대한 매핑입니다.(소스이미지에 대한 매핑만이 존재합니다.)
+#load ref image and source image
+Extracted_feature = [0 for _ in range(len(sampled_butterfly_image))]#feature 추출은 모든 이미지(ref, source)에 대해서 합니다.
+fundamental_mats = []#각각의 fundamental matrix입니다.
+for idx, image_name in enumerate(sampled_butterfly_image):
+    color_bgr_img = cv2.imread(image_name)
+    color_origin_img = color_bgr_img.copy()
+    saved_color_imgs.append(color_origin_img)
+
+    gray_img = cv2.cvtColor(color_bgr_img, cv2.COLOR_BGR2GRAY)
+    saved_imgs_gray.append(gray_img)
+    Extracted_feature[idx] = {}
+    if not os.path.isfile('denseSIFT.pickle'):
+        print(idx, "번째 이미지를 읽는중입니다.")
+        for y in range(color_bgr_img.shape[0]):
+            for x in range(color_bgr_img.shape[1]):
+                des = extract_SIFT(gray_img, x, y, patchsize)#패치사이즈 만하게 descriptor를 뽑습니다.
+                if len(des) == 0:#가장자리 영역이면 해당 descriptor를 0으로 초기화합니다.
+                    Extracted_feature[idx][(y, x)] = 0
+                else:#아니라면 해당 descriptor를 descriptor로 초기화합니다. 1 x120이엇나..
+                    Extracted_feature[idx][(y, x)] =des
+
+if not os.path.isfile('denseSIFT.pickle'):
+    with open('denseSIFT.pickle', 'wb') as f:
+        pickle.dump(Extracted_feature,f,pickle.HIGHEST_PROTOCOL)
+else:
+    with open('denseSIFT.pickle', 'rb') as f:
+        Extracted_feature = pickle.load(f)
+
+ref_img = saved_imgs_gray[0]#기존 gray성격의 reference 이미지 입니다.
+return_img = saved_color_imgs[0].copy()#수정되는 color형태의 이미지입니다.
+img_h, img_w = ref_img.shape
+mask_img = np.ones((img_h,img_w))*255#이미지 마스킹간에 사용되는 마스크입니다.
+source_imgs = saved_imgs_gray[1:]#첫번째 원소를 제외한 소스이미지입니다.
+
+
+similarity_map =np.zeros((img_h,img_w,len(source_imgs)))#similarity map의 크기는 source 이미지 개수
+for source_img in source_imgs:
+    fundamental_matrix = Get_Fundamental(ref_img,source_img)
+    fundamental_mats.append(fundamental_matrix)
+
+
+for i, source_img in enumerate(source_imgs):
+    #get denseflow
+    dense_flow = cv2.calcOpticalFlowFarneback(ref_img, source_img,None,0.5,3,13,10,5,1.1,cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
+    view_image = saved_color_imgs[i+1].copy()
+    # correspondence_map.append(dense_flow)
+    for y in range(0, img_h, 10):
+        for x in range(0, img_w, 10):
+            view_image = cv2.arrowedLine(view_image,(x,y),(int(x+dense_flow[y,x][0]),int(y+dense_flow[y,x][1])),(0,0,255),1,8,0)
+    print("updated new image")
+    cv2.imshow("similaritymap", view_image)
+    cv2.waitKey(0)
+
+for image in saved_color_imgs:
+    #get lad feature
+    lab_image = cv2.cvtColor(image,cv2.COLOR_BGR2LAB)
+    kernel = np.ones((patchsize,patchsize),np.float32)/(patchsize*patchsize)
+    lab_image = cv2.filter2D(lab_image,-1,kernel)
+    lab_images.append(lab_image)
