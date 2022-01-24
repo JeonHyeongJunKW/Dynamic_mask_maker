@@ -217,108 +217,187 @@ for scan_vec in [1,0]:
                 # P는 그중에서 Am에 속하는 점들의 패치 집합이다.
                 # W^1_r은 q에 대한 이미지 패치이다.
                 mask_img[y, x] =0#동적인 물체로 마스킹합니다.
-                Am_origin = np.array(x_hats_c_x2_neigh_idx)[clustering_label == max_cluster_idx]#가장 신뢰도가 높은 k의 점들
-                print("각 후보점들의 기본인덱스", Am_origin)
-                Am_good_x_hat = np.array(good_x_hat)[clustering_label == max_cluster_idx,:]
+                Am_origin = np.array(x_hats_c_x2_neigh_idx)[clustering_label == max_cluster_idx]#가장 신뢰도가 높은 k의 점들의 인덱스
+                # print("각 후보점들의 기본인덱스", Am_origin)
+                Am_good_x_hat = np.array(good_x_hat)[clustering_label == max_cluster_idx,:]#가장 신뢰도가 높은 k의 점들의 실제좌표
                 Am = (Am_origin/2).astype(np.int32).tolist()#각각의 source 이미지 단위로 표시
-                print("각 후보점들의 소스채널", Am+1)
+                # print("각 후보점들의 소스채널", Am)
                 max_q = -1
                 q_value = 0
+                q_value_list = []
                 for id_q, source_ind in enumerate(Am):
-                    first_point = x_hats[source_ind][0]
-                    second_point = x_hats[source_ind][1]
-                    if (first_point[0] < 0 or first_point[0] >= img_h) or (first_point[1] < 0 or first_point[1] >= img_w):
-                        continue
-                    if (second_point[0] < 0 or second_point[0] >= img_h) or (second_point[1] < 0 or second_point[1] >= img_w):
-                        continue
-                    first_point_DSIFT = Extracted_feature[source_ind + 1][(first_point[0], first_point[1])]
+                    q_x_a = Am_good_x_hat[id_q]
+                    test_q = 0
+                    for neighbor_add_point in scan_neighbor[scan_vec]:
+                        x_r_n_test_point = (np.array([y,x]) +np.float64(neighbor_add_point)).astype(np.int32)
+                        x_c_n_test_point = q_x_a + np.float64(neighbor_add_point).astype(np.int32)
+                        if (x_r_n_test_point[0] < 0 or x_r_n_test_point[0] >= img_h) or (x_r_n_test_point[1] < 0 or x_r_n_test_point[1] >= img_w):
+                            continue
+                        if (x_c_n_test_point[0] < 0 or x_c_n_test_point[0] >= img_h) or (x_c_n_test_point[1] < 0 or x_c_n_test_point[1] >= img_w):
+                            continue
+                        ref_n_point_DSIFT = Extracted_feature[0][(x_r_n_test_point[0], x_r_n_test_point[1])]
 
-                    second_point_DSIFT = Extracted_feature[source_ind + 1][(second_point[0], second_point[1])]
-                    ref_DSIFT = Extracted_feature[0][(y, x)]
-
-                    first_Se_c = Se_distance(lab_images[source_ind+1][first_point[0],first_point[1],:],
-                                             lab_images[0][y, x, :], sigma_c)
-                    first_Se_h = Se_distance(first_point_DSIFT, ref_DSIFT, sigma_h)
-
-                    second_Se_c = Se_distance(lab_images[source_ind+1][second_point[0], second_point[1], :],
-                                              lab_images[0][y, x, :], sigma_c)
-                    second_Se_h = Se_distance(second_point_DSIFT, ref_DSIFT, sigma_h)
+                        source_n_point_DSIFT = Extracted_feature[source_ind + 1][(x_c_n_test_point[0], x_c_n_test_point[1])]
+                        color_dist = Se_distance(lab_images[source_ind+1][x_c_n_test_point[0],x_c_n_test_point[1],:],
+                                             lab_images[0][x_r_n_test_point[0], x_r_n_test_point[1], :], sigma_c)
+                        dsift_dist = Se_distance(ref_n_point_DSIFT, source_n_point_DSIFT, sigma_h)
+                        test_q += Lambda_6*color_dist +Lambda_7*dsift_dist
                     # 이부분이 Am외적인 부분임
-                    q_temp = Lambda_6*first_Se_c + \
-                             Lambda_6*second_Se_c + \
-                             Lambda_7* first_Se_h + \
-                             Lambda_7* second_Se_h + \
+                    q_temp = test_q + \
                              Lambda_8*Sf_distance(np.float64([x, y, 1])\
                                                   ,np.float64([Am_good_x_hat[id_q][1],Am_good_x_hat[id_q][0],1])\
                                                   ,fundamental_mats[source_ind])
+                    q_value_list.append(q_temp)
                     if q_value<q_temp:
                         q_value = q_temp
                         max_q = id_q
+
+                sort_idx =np.array(q_value_list).argsort()
+                sort_array = sort_idx[::-1].tolist()
+                #최종적으로 q값을 비교합니다.
+                same_list = []
+                same_list.append(0)
+                for idx_in_cand, cand_q_idx in enumerate(sort_array):
+                    if idx_in_cand ==0 :
+                        continue
+                    else :
+                        if 0.95*sort_array[0] - sort_array[cand_q_idx] <0:
+                            same_list.append(cand_q_idx)#첫번째꺼 빼고한거라서 이렇게됨
+
+                if len(same_list) > 1:#만약에 비슷한게 너무 많다면
+                    small_q = 100000
+                    small_q_ind = -1
+                    for same_cand in same_list:
+                        same_cand_dsift = k_full_feature[same_cand]#유사한점을 가지는 점들 descriptor입니다.
+                        same_cand_LAB = k_LAB_feature[same_cand]
+                        temp_small_q = Lambda_4*np.sum((same_cand_LAB-center_of_LAB)**2)+\
+                           Lambda_5*np.sum((same_cand_dsift-center_of_denseSIFT)**2)
+                        if small_q > temp_small_q:
+                            small_q = temp_small_q
+                            small_q_ind = same_cand
+                    if small_q_ind == -1 :
+                        print("이런경우는 없습니다.")
+                    else :
+                        max_q = small_q_ind
                 #update I, fc , Fg
                 final_cand_point = Am_good_x_hat[max_q]
                 final_fc = lab_images[Am[max_q]+1][final_cand_point[0],final_cand_point[1],:]
                 final_fg = Extracted_feature[Am[max_q]+1][(final_cand_point[0], final_cand_point[1])]
                 #패치를 대체합니다.
                 return_img[y, x] = saved_color_imgs[Am[max_q] + 1][final_cand_point[0], final_cand_point[1], :]
-                change_patch(saved_color_imgs[Am[max_q] + 1], final_cand_point[0], final_cand_point[1], return_img, y, x, 4)
+                change_patch(saved_color_imgs[Am[max_q] + 1], final_cand_point[0], final_cand_point[1], return_img, y, x, 15)
                 lab_images[0][y, x] = final_fc
                 Extracted_feature[0][(y, x)] = final_fg
 
-                #feature mapping과 c를 수정합니다.
-                Am_lists = np.array(list(Am))
-                list_q_in_AM = np.where(Am_lists ==Am[max_q])
-                if list_q_in_AM[0].shape[0] ==1:
+                #채널별로 feature mapping과 c를 수정합니다.
+                # - 채널별로 Am에 속하는지 확인합니다.
+                for source_ind in range(len(source_imgs)):
+                    if source_ind in Am:
+                        source_number = Am.count(source_ind)
+                        if source_number == 1:
+                            best_ind = Am.index(source_ind)
+                            correspondence_map[Am[best_ind]][y, x] = np.flip(
+                                Am_good_x_hat[best_ind] - np.array([y, x]))  # 현재 다른차원에서 매핑된 점을 사용합니다.
+                            f_c_x_r = lab_images[0][y, x, :]  # ref이미지에 대한 LAB벡터입니다.
+                            f_c_x_hat = lab_images[Am[best_ind] + 1][Am_good_x_hat[best_ind][0], Am_good_x_hat[best_ind][1],
+                                        :]  # source 이미지에 대한 LAB벡터입니다.
 
-                    correspondence_map[Am[max_q]][y, x] = np.flip(final_cand_point - np.array([y, x]))#현재 다른차원에서 매핑된 점을 사용합니다.
-                    f_c_x_r = lab_images[0][y, x, :]  # ref이미지에 대한 LAB벡터입니다.
-                    f_c_x_hat = lab_images[Am[max_q] + 1][final_cand_point[0], final_cand_point[1], :]  # source 이미지에 대한 LAB벡터입니다.
+                            f_g_x_r = Extracted_feature[0][(y, x)]  # ref이미지에 대한 dense sift입니다.
+                            f_g_x_hat = Extracted_feature[Am[best_ind] + 1][
+                                (Am_good_x_hat[best_ind][0], Am_good_x_hat[best_ind][1])]  # ref이미지에 대한 dense sift입니다.
 
-                    f_g_x_r = Extracted_feature[0][(y, x)]  # ref이미지에 대한 dense sift입니다.
-                    f_g_x_hat = Extracted_feature[Am[max_q]+1][(final_cand_point[0], final_cand_point[1])]  # ref이미지에 대한 dense sift입니다.
+                            dist_1 = Se_distance(f_c_x_r, f_c_x_hat, sigma_c)
+                            dist_2 = Se_distance(f_g_x_r, f_g_x_hat, sigma_g)
+                            dist_3 = Sf_distance(np.float64([x, y, 1]),
+                                                 np.float64([Am_good_x_hat[best_ind][1], Am_good_x_hat[best_ind][0], 1]),
+                                                 fundamental_mats[Am[best_ind]])
+                            similarity_map[y, x, Am[best_ind]] = Lambda_1 * dist_1 + \
+                                                              Lambda_2 * dist_2 + \
+                                                              Lambda_3 * dist_3
+                        else : #2개인 경우
+                            ind_two = np.where(np.array(Am) ==source_ind)
+                            max_ind = -1
+                            max_sim_best = 0
+                            for ind_two_idx in ind_two[0].tolist():
+                                best_ind = ind_two_idx
+                                f_c_x_r = lab_images[0][y, x, :]  # ref이미지에 대한 LAB벡터입니다.
+                                f_c_x_hat = lab_images[Am[best_ind] + 1][Am_good_x_hat[ind_two_idx][0],
+                                            Am_good_x_hat[best_ind][1],
+                                            :]  # source 이미지에 대한 LAB벡터입니다.
 
-                    dist_1 = Se_distance(f_c_x_r, f_c_x_hat, sigma_c)
-                    dist_2 = Se_distance(f_g_x_r, f_g_x_hat, sigma_g)
-                    dist_3 = Sf_distance(np.float64([x, y,1]), np.float64([final_cand_point[1], final_cand_point[0],1]), fundamental_mats[Am[max_q]])
-                    if np.isnan(dist_3):
-                        print([y, x], [final_cand_point[0], final_cand_point[1]])
-                        print("Am에 속하는 점이 1개일 경우, 패치사이에 너무 큰 fundamental 에러가 나왓습니다. 잘못된 매칭인듯합니다.")
-                        cv2.waitKey(0)
-                    similarity_map[y, x, Am[max_q]] = Lambda_1 * dist_1 + \
-                                                      Lambda_2 * dist_2 + \
-                                                      Lambda_3 * dist_3
-                elif list_q_in_AM[0].shape[0] ==2:
-                    best_cand_points = [Am_good_x_hat[list_q_in_AM[0][0]],Am_good_x_hat[list_q_in_AM[0][1]]]
-                    best_sim =0
-                    best_k = -1
-                    for best_cand_k, best_cand_point in enumerate(best_cand_points):
+                                f_g_x_r = Extracted_feature[0][(y, x)]  # ref이미지에 대한 dense sift입니다.
+                                f_g_x_hat = Extracted_feature[Am[best_ind] + 1][
+                                    (Am_good_x_hat[best_ind][0],
+                                     Am_good_x_hat[best_ind][1])]  # ref이미지에 대한 dense sift입니다.
+
+                                dist_1 = Se_distance(f_c_x_r, f_c_x_hat, sigma_c)
+                                dist_2 = Se_distance(f_g_x_r, f_g_x_hat, sigma_g)
+                                dist_3 = Sf_distance(np.float64([x, y, 1]),
+                                                     np.float64(
+                                                         [Am_good_x_hat[best_ind][1], Am_good_x_hat[best_ind][0], 1]),
+                                                     fundamental_mats[Am[best_ind]])
+                                temp_best = Lambda_1 * dist_1 + \
+                                                                  Lambda_2 * dist_2 + \
+                                                                  Lambda_3 * dist_3
+                                if temp_best > max_sim_best:
+                                    max_sim_best = temp_best
+                                    max_ind = best_ind
+                            similarity_map[y, x, source_ind] = max_sim_best
+                            correspondence_map[source_ind][y, x] = np.flip(
+                                Am_good_x_hat[max_ind] - np.array([y, x]))  # 현재 다른차원에서 매핑된 점을 사용합니다.
+                    else : #만약에 해당 물체가 동적인 물체로 되어있는경우
+                        #후보점 두개 + ref의 이웃의 투영 후 점
+                        cand_list = []
+                        for neighbor_add_point in scan_neighbor[scan_vec]:
+
+                            x_ref_neigh = np.float64([y, x]) + np.float64(neigh_point_delta)
+                            x_hat_neigh = x_ref_neigh + np.flip(correspondence_map[source_ind][int(x_ref_neigh[0]), int(
+                                x_ref_neigh[1])])  # 동적인 물체 주변에서는 완전히 이상한 값이 나옴
+                            if (x_hat_neigh[0] >= 0 and x_hat_neigh[0] < img_h) and (
+                                    x_hat_neigh[1] >= 0 and x_hat_neigh[1] < img_w):
+
+                                cand_list.append(x_hat_neigh)
+
+                            x_hat_cand = x_hat_neigh - np.float64(neigh_point_delta)
+
+                            if (x_hat_cand[0] >= 0 and x_hat_cand[0] < img_h) and \
+                                    (x_hat_cand[1] >= 0 and x_hat_cand[1] < img_w):
+                                cand_list.append(x_hat_cand)
+                        best_ind = -1
+                        if len(cand_list) ==0:
+                            print(y,x)
+                            similarity_map[y, x, source_ind] = 0
+                            continue
+                        max_sim_best = 0
+                        for test_idx, test_point in enumerate(cand_list):
+                            cand_value = Sf_distance(np.float64([x, y, 1]) \
+                                        , np.float64([test_point[1], test_point[0], 1]) \
+                                        , fundamental_mats[source_ind])
+                            if max_sim_best <cand_value:
+                                best_ind =test_idx
+                                max_sim_best = cand_value
+                        best_point =cand_list[best_ind].astype(np.int64)
+                        correspondence_map[source_ind][y, x] = np.flip(
+                            best_point - np.array([y, x]))  # 현재 다른차원에서 매핑된 점을 사용합니다.
                         f_c_x_r = lab_images[0][y, x, :]  # ref이미지에 대한 LAB벡터입니다.
-                        f_c_x_hat = lab_images[Am[max_q] + 1][best_cand_point[0], best_cand_point[1], :]  # source 이미지에 대한 LAB벡터입니다.
+                        f_c_x_hat = lab_images[source_ind + 1][best_point[0], best_point[1],
+                                    :]  # source 이미지에 대한 LAB벡터입니다.
 
                         f_g_x_r = Extracted_feature[0][(y, x)]  # ref이미지에 대한 dense sift입니다.
-                        f_g_x_hat = Extracted_feature[Am[max_q]+1][(best_cand_point[0], best_cand_point[1])]  # ref이미지에 대한 dense sift입니다.
+                        f_g_x_hat = Extracted_feature[source_ind + 1][
+                            (best_point[0], best_point[1])]  # ref이미지에 대한 dense sift입니다.
 
                         dist_1 = Se_distance(f_c_x_r, f_c_x_hat, sigma_c)
                         dist_2 = Se_distance(f_g_x_r, f_g_x_hat, sigma_g)
-                        dist_3 = Sf_distance(np.float64([x, y,1]), np.float64([best_cand_point[1], best_cand_point[0],1]), fundamental_mats[Am[max_q]])
-                        if np.isnan(dist_3):
-                            print([y, x], [best_cand_point[0], best_cand_point[1]])
-                            print("Am에 속하는 점이 2개일 경우, 패치사이에 너무큰 fundamental 에러가 나왓습니다. 잘못된 매칭인듯합니다.")
-                            cv2.waitKey(0)
-                        test_best_sim = Lambda_1 * dist_1 + \
-                                                    Lambda_2 * dist_2 + \
-                                                    Lambda_3 * dist_3
-                        if test_best_sim >best_sim:
-                            best_sim = test_best_sim
-                            best_k =best_cand_k
-                    if best_k ==-1:
-                        print(best_cand_points)
-                        print(test_best_sim)
-                        print(best_sim)
-                        print("이게 왜이럼ㅋㅋ")
-                    similarity_map[y, x, Am[max_q]] = best_sim
-                    correspondence_map[Am[max_q]][y, x] = np.flip(best_cand_points[best_k] - np.array([y, x]))  # 현재 다른차원에서 매핑된 점을 사용합니다.
-                else:
-                    print("z")
+                        dist_3 = Sf_distance(np.float64([x, y, 1]),
+                                             np.float64([best_point[1], best_point[0], 1]),
+                                             fundamental_mats[source_ind])
+                        similarity_map[y, x, source_ind] = Lambda_1 * dist_1 + \
+                                                             Lambda_2 * dist_2 + \
+                                                             Lambda_3 * dist_3
+
+
+
                 cv2.imshow("mask", mask_img)
                 cv2.imshow("result", return_img)
                 cv2.waitKey(1)
