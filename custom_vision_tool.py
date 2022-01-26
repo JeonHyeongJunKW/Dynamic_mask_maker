@@ -56,13 +56,13 @@ def Get_Fundamental(img1, img2):
     pts1 =[]
     pts2 =[]
     for m,n in matches:
-        if m.distance < 0.3 *n.distance:
+        if m.distance < 0.9 *n.distance:
             pts1.append(kp1[m.queryIdx].pt)
             pts2.append(kp2[m.trainIdx].pt)
 
     pts1 = np.int32(pts1)
     pts2 = np.int32(pts2)
-
+    print(pts1.shape[0])
     F, mask = cv2.findFundamentalMat(pts1,pts2,cv2.FM_8POINT)
 
     return F

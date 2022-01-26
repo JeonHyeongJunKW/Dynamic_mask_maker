@@ -245,7 +245,7 @@ for scan_vec in [1,0]:
                     # 이부분이 Am외적인 부분임
                     q_temp = test_q + \
                              Lambda_8*Sf_distance(np.float64([x, y, 1])\
-                                                  ,np.float64([Am_good_x_hat[id_q][1],Am_good_x_hat[id_q][0],1])\
+                                                  ,np.float64([Am_good_x_hat[id_q][1],Am_good_x_hat[id_q][0],1])
                                                   ,fundamental_mats[source_ind])
                     q_value_list.append(q_temp)
                     if q_value<q_temp:
@@ -285,7 +285,7 @@ for scan_vec in [1,0]:
                 final_fg = Extracted_feature[Am[max_q]+1][(final_cand_point[0], final_cand_point[1])]
                 #패치를 대체합니다.
                 return_img[y, x] = saved_color_imgs[Am[max_q] + 1][final_cand_point[0], final_cand_point[1], :]
-                change_patch(saved_color_imgs[Am[max_q] + 1], final_cand_point[0], final_cand_point[1], return_img, y, x, 15)
+                change_patch(saved_color_imgs[Am[max_q] + 1], final_cand_point[0], final_cand_point[1], return_img, y, x, 3)
                 lab_images[0][y, x] = final_fc
                 Extracted_feature[0][(y, x)] = final_fg
 
@@ -365,7 +365,6 @@ for scan_vec in [1,0]:
                                 cand_list.append(x_hat_cand)
                         best_ind = -1
                         if len(cand_list) ==0:
-                            print(y,x)
                             similarity_map[y, x, source_ind] = 0
                             continue
                         max_sim_best = 0

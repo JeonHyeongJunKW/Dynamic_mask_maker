@@ -1,3 +1,4 @@
 .idea
 __pycache__
 denseSIFT.pickle
+similarity_map.pickle
