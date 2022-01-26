@@ -20,9 +20,10 @@ https://github.com/Yangqing/dsift-python
 
 ### 비고 
 
-구현간에 단점은 optical flow나 fundamental matrix가 부정확하게 구해지면 않좋은 이미지를 보여준다는점이다. 이에 대한 변화가 필요하다.
+구현간에 단점은 optical flow나 fundamental matrix가 부정확하게 구해지면 않좋은 이미지를 보여준다는점이다. 이에 대한 보정이 필요하다.
 
 ### 참고 문헌
 
 G Kanojia, S Raman, "Simultaneous Detection and Removal of Dynamic Objects in Multi-view Images", CVPR 2020
+
 Y. Jia and T. Darrell. ``Heavy-tailed Distances for Gradient Based Image Descriptors''. NIPS 2011
