@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
-from dsift import SingleSiftExtractor
-
+from dsift import SingleSiftExtractor, MultiSiftExtractor
+import time
 def extract_SIFT(img, x,y, pixel_size):
     bottom_x = int(x-pixel_size/2) if int(x-pixel_size/2) >=0 else 0
     bottom_y = int(y - pixel_size / 2) if int(y - pixel_size / 2) >= 0 else 0
@@ -11,6 +11,14 @@ def extract_SIFT(img, x,y, pixel_size):
     extractor = SingleSiftExtractor(pixel_size)
     dense_feature = extractor.process_image(patch_img)
     return dense_feature
+
+def extract_fullDenseSiFT(img, pixel_size):
+    start = time.time()
+    extractor = MultiSiftExtractor(pixel_size)
+    feaArr, positions = extractor.process_image(img)
+    end = time.time()
+    print(end-start)
+    print(positions)
 
 def extract_HoG(img,x,y,pixel_size):
     bottom_x = int(x - pixel_size / 2) if int(x - pixel_size / 2) >= 0 else 0
@@ -63,6 +71,6 @@ def Get_Fundamental(img1, img2):
     pts1 = np.int32(pts1)
     pts2 = np.int32(pts2)
     print(pts1.shape[0])
-    F, mask = cv2.findFundamentalMat(pts1,pts2,cv2.FM_8POINT)
+    F, mask = cv2.findFundamentalMat(pts1,pts2,cv2.FM_RANSAC)
 
     return F

@@ -187,6 +187,23 @@ class SingleSiftExtractor(DsiftExtractor):
     
     def process_image(self, image):
         return DsiftExtractor.process_image(self, image, False, False)[0]
+
+
+class MultiSiftExtractor(DsiftExtractor):
+    '''
+    The simple wrapper class that does feature extraction, treating
+    the whole image as a local image patch.
+    '''
+
+    def __init__(self, patchSize,
+                 nrml_thres=1.0, \
+                 sigma_edge=0.8, \
+                 sift_thres=0.2):
+        # simply call the super class __init__ with a large gridSpace
+        DsiftExtractor.__init__(self, 1, patchSize, nrml_thres, sigma_edge, sift_thres)
+
+    def process_image(self, image):
+        return DsiftExtractor.process_image(self, image, False, False)
     
 if __name__ == '__main__':
     # ignore this. I only use this for testing purpose...

@@ -1,6 +1,11 @@
 # Dynamic_mask_maker
 make dynamic mask
 
+기존 Dense Sift뽑는 방식을 수정 (패치 사이즈를 32에서 12로 줄임, cyvlfeat )
+
+### 권장 버전
+python 3.6.x( 이 이상은 cyflfeat 설치가 안됨)
+
 ### Patch-based 방법을 적용한 방식
 <원본이미지>
 

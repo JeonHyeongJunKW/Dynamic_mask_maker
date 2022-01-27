@@ -2,10 +2,11 @@ import cv2
 import glob
 import numpy as np
 from custom_vision_tool import *
-import pickle
+import pickle5 as pickle
 import os
 from custom_metric import *
 from sklearn.cluster import DBSCAN
+from cyvlfeat.sift import dsift
 Lambda_1 = 0.15
 Lambda_2 = 0.4
 Lambda_3 = 0
@@ -19,7 +20,7 @@ Lambda_7 = 0.36
 Lambda_8 = 0.03
 t_r =0.4
 
-patchsize = 32 # 특징추출 및 이미지 갱신에 사용되는 패치사이즈입니다.
+patchsize = 12 # 특징추출 및 이미지 갱신에 사용되는 패치사이즈입니다.
 
 butterfly_image = glob.glob("D:/Davis dataset/DAVIS/JPEGImages/480p/butterfly/*.jpg")
 sampled_butterfly_image = [butterfly_image[i]  for i in range(0,len(butterfly_image), 10)]#10개정도의 샘플이미지에서 장소이미지를 얻어옵니다.
@@ -30,6 +31,17 @@ lab_images = [] # lab mean feature에 대한 매핑입니다.(소스이미지에
 #load ref image and source image
 Extracted_feature = [0 for _ in range(len(sampled_butterfly_image))]#feature 추출은 모든 이미지(ref, source)에 대해서 합니다.
 fundamental_mats = []#각각의 fundamental matrix입니다.
+
+cast_feat = {}
+color_bgr_img = cv2.imread(sampled_butterfly_image[0])
+for y in range(color_bgr_img.shape[0]):
+    for x in range(color_bgr_img.shape[1]):
+        #특징들을 feature 개수만큼 만듭니다.
+        cast_feat[(y, x)] = 0
+max_height = 0
+max_width = 0
+min_height =color_bgr_img.shape[0]
+min_width = color_bgr_img.shape[1]
 for idx, image_name in enumerate(sampled_butterfly_image):
     color_bgr_img = cv2.imread(image_name)
     color_origin_img = color_bgr_img.copy()
@@ -37,23 +49,40 @@ for idx, image_name in enumerate(sampled_butterfly_image):
 
     gray_img = cv2.cvtColor(color_bgr_img, cv2.COLOR_BGR2GRAY)
     saved_imgs_gray.append(gray_img)
-    Extracted_feature[idx] = {}
+    Extracted_feature[idx] = cast_feat.copy()
+    float_img = gray_img.astype(np.float32)
+    F = dsift(float_img, size=patchsize,float_descriptors=True)
+    start = time.time()
+
     if not os.path.isfile('denseSIFT.pickle'):
         print(idx, "번째 이미지를 읽는중입니다.")
-        for y in range(color_bgr_img.shape[0]):
-            for x in range(color_bgr_img.shape[1]):
-                des = extract_SIFT(gray_img, x, y, patchsize)#패치사이즈 만하게 descriptor를 뽑습니다.
-                if len(des) == 0:#가장자리 영역이면 해당 descriptor를 0으로 초기화합니다.
-                    Extracted_feature[idx][(y, x)] = 0
-                else:#아니라면 해당 descriptor를 descriptor로 초기화합니다. 1 x120이엇나..
-                    Extracted_feature[idx][(y, x)] =des
+        keypoint = F[0].astype(np.int32)
+        descriptor = F[1]
+        for feat_idx in range(keypoint.shape[0]):
+            des = np.reshape(descriptor[feat_idx, :], (1, -1))
+            size = np.linalg.norm(des)
+            if size !=0:
+                des = des/size
+            Extracted_feature[idx][(keypoint[feat_idx, 0], keypoint[feat_idx, 1])] = des
+            if idx ==0:
+                if keypoint[feat_idx, 0] >= max_height:
+                    max_height = keypoint[feat_idx, 0]
+                if keypoint[feat_idx, 1] >= max_width:
+                    max_width = keypoint[feat_idx, 1]
+                if keypoint[feat_idx, 0] <= min_height :
+                    min_height = keypoint[feat_idx, 0]
+                if keypoint[feat_idx, 1] <= min_width :
+                    min_width = keypoint[feat_idx, 1]
 
-if not os.path.isfile('denseSIFT.pickle'):
-    with open('denseSIFT.pickle', 'wb') as f:
-        pickle.dump(Extracted_feature,f,pickle.HIGHEST_PROTOCOL)
-else:
-    with open('denseSIFT.pickle', 'rb') as f:
-        Extracted_feature = pickle.load(f)
+    # extract_fullDenseSiFT(gray_img,patchsize)
+    # exit(0)
+
+# if not os.path.isfile('denseSIFT.pickle'):
+#     with open('denseSIFT.pickle', 'wb') as f:
+#         pickle.dump(Extracted_feature,f,pickle.HIGHEST_PROTOCOL)
+# else:
+#     with open('denseSIFT.pickle', 'rb') as f:
+#         Extracted_feature = pickle.load(f)
 
 ref_img = saved_imgs_gray[0]#기존 gray성격의 reference 이미지 입니다.
 return_img = saved_color_imgs[0].copy()#수정되는 color형태의 이미지입니다.
@@ -111,28 +140,27 @@ if not os.path.isfile('similarity_map.pickle'):
                 similarity_map[y, x, idx] = Lambda_1 * dist_1 + \
                                             Lambda_2 * dist_2 + \
                                             Lambda_3 * dist_3
-if not os.path.isfile('similarity_map.pickle'):
-    with open('similarity_map.pickle', 'wb') as f:
-        pickle.dump(similarity_map,f,pickle.HIGHEST_PROTOCOL)
-else:
-    with open('similarity_map.pickle', 'rb') as f:
-        similarity_map = pickle.load(f)
 
 #탐생방향에 대한 파라미터
 scan_neighbor = [[0,-1],[-1,0]],[[0,1],[1,0]]
-start_height = [0,ref_img.shape[0]-1]
-start_width = [0, ref_img.shape[1] - 1]
-end_height = [ref_img.shape[0]-1,-1]
-end_width = [ref_img.shape[1]- 1, -1]
+start_height = [min_height, max_height]
+start_width = [min_width, max_width]
+end_height = [max_height+1, min_height-1]
+end_width = [max_width+1, min_width-1]
 way = [1,-1]
 print("main start")
 for scan_vec in [1,0]:
     for y in range(start_height[scan_vec], end_height[scan_vec], way[scan_vec]):
         for x in range(start_width[scan_vec], end_width[scan_vec], way[scan_vec]):
+            cv2.imshow("mask", mask_img)
+            cv2.imshow("result", return_img)
+            cv2.waitKey(1)
+            # print((y, x))
             if type(Extracted_feature[0][(y, x)]) is not np.ndarray: #만약에 레퍼런스 이미지가 feature가 존재하지않는다면
                 continue
+            # print(type(Extracted_feature[0][(y, x)]))
+
             x_hats = []
-            # print(y,x)
             for idx, source_img in enumerate(source_imgs):
                 x_hats_in_source = []
                 #각 소스 이미지마자 후보점들을 추가합니다.
@@ -397,7 +425,5 @@ for scan_vec in [1,0]:
 
 
 
-                cv2.imshow("mask", mask_img)
-                cv2.imshow("result", return_img)
-                cv2.waitKey(1)
+
 cv2.waitKey(0)
