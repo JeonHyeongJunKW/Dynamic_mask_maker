@@ -7,6 +7,8 @@ import os
 from custom_metric import *
 from sklearn.cluster import DBSCAN
 from cyvlfeat.sift import dsift
+from PatchMatch import NNS
+import json
 import copy
 Lambda_1 = 0.15
 Lambda_2 = 0.4
@@ -19,12 +21,14 @@ Lambda_5 = Lambda_2/(Lambda_1+Lambda_2)
 Lambda_6 = 0.12
 Lambda_7 = 0.36
 Lambda_8 = 0.03
-t_r =0.5
+t_r =0.2
+resolution_width = 3
+resolution_height = 2
 
-patchsize = 10 # 특징추출 및 이미지 갱신에 사용되는 패치사이즈입니다.
+patchsize = 4 # 특징추출 및 이미지 갱신에 사용되는 패치사이즈입니다.
 
-butterfly_image = glob.glob("D:/Davis dataset/DAVIS/JPEGImages/480p/butterfly/*.jpg")
-sampled_butterfly_image = [butterfly_image[i]  for i in range(0,len(butterfly_image), 10)]#10개정도의 샘플이미지에서 장소이미지를 얻어옵니다.
+images = glob.glob(".OriginImage/*.jpg")
+sampled_butterfly_image = [images[i]  for i in range(0, 7, 1)]#10개정도의 샘플이미지에서 장소이미지를 얻어옵니다.
 saved_color_imgs = []
 saved_imgs_gray = []
 correspondence_map = []#denseflow에 대한 매핑입니다.
@@ -35,16 +39,18 @@ fundamental_mats = []#각각의 fundamental matrix입니다.
 
 cast_feat = {}
 color_bgr_img = cv2.imread(sampled_butterfly_image[0])
+color_bgr_img =cv2.resize(color_bgr_img,dsize=(int(color_bgr_img.shape[1]/resolution_width),int(color_bgr_img.shape[0]/resolution_height)),interpolation=cv2.INTER_AREA)
 for y in range(color_bgr_img.shape[0]):
     for x in range(color_bgr_img.shape[1]):
         #특징들을 feature 개수만큼 만듭니다.
         cast_feat[(y, x)] = 0
 max_height = 0
 max_width = 0
-min_height =color_bgr_img.shape[0]
-min_width = color_bgr_img.shape[1]
+min_height =int(color_bgr_img.shape[0]/resolution_height)
+min_width = int(color_bgr_img.shape[1]/resolution_width)
 for idx, image_name in enumerate(sampled_butterfly_image):
     color_bgr_img = cv2.imread(image_name)
+    color_bgr_img =cv2.resize(color_bgr_img,dsize=(int(color_bgr_img.shape[1]/resolution_width),int(color_bgr_img.shape[0]/resolution_height)),interpolation=cv2.INTER_AREA)
     color_origin_img = color_bgr_img.copy()
     saved_color_imgs.append(color_origin_img)
 
@@ -90,11 +96,29 @@ for source_img in source_imgs:
     fundamental_matrix = Get_Fundamental(ref_img,source_img)
     fundamental_mats.append(fundamental_matrix)
 
+if not os.path.isfile('./patchmatch.npy'):
+    saved_patchmach = 0
+    for source_img in saved_color_imgs[1:]:
+        #get denseflow
+        # dense_flow = cv2.calcOpticalFlowFarneback(ref_img, source_img,None,0.5,3,13,10,5,1.1,cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
+        p_size = 21
+        itr = 5
+        f = NNS(saved_color_imgs[0], source_img, p_size, itr)
+        # f = np.reshape(f,(1,f.shape[0],f.shape[1],f.shape[2]))
+        saved_f = np.zeros((1,source_img.shape[0],source_img.shape[1],2))
+        for i in range(source_img.shape[0]):
+            for j in range(source_img.shape[1]):
+                saved_f[0,i,j] = [f[i,j][0],f[i,j][1]]
+        if type(saved_patchmach) is not np.ndarray:
+            saved_patchmach = saved_f.copy()
+        else:
+            saved_patchmach = np.vstack((saved_patchmach,saved_f.copy()))
+            print(saved_patchmach.shape)
+    np.save("./patchmatch.npy",saved_patchmach)
+    correspondence_map =saved_patchmach
+else:
+    correspondence_map = np.load("./patchmatch.npy")
 
-for source_img in source_imgs:
-    #get denseflow
-    dense_flow = cv2.calcOpticalFlowFarneback(ref_img, source_img,None,0.5,3,13,10,5,1.1,cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
-    correspondence_map.append(dense_flow)
 
 for image in saved_color_imgs:
     #get lad feature
@@ -119,6 +143,7 @@ for y in range(source_img.shape[0]):
 # cv2.waitKey(0)
 for idx, source_img in enumerate(source_imgs):#일종에 신뢰도를 구하기 위한 전처리과정인데 너무 오래걸린다.
     print("making similarity map :",idx)
+    please_good_image = np.zeros((source_img.shape[0],source_img.shape[1],3),dtype=np.uint8)
     for y in range(source_img.shape[0]):
         for x in range(source_img.shape[1]):
             #Extracted_feature의 값이 numpy인지를 확인합니다.
@@ -126,19 +151,30 @@ for idx, source_img in enumerate(source_imgs):#일종에 신뢰도를 구하기 
             if type(Extracted_feature[0][(y, x)]) is not np.ndarray:
                 continue
 
-            x_hat = np.array([y, x]) + np.flip(correspondence_map[idx][y, x])
+            x_hat = np.array([correspondence_map[idx,y, x,0],correspondence_map[idx,y, x,1]])
+
             x_hat_int = x_hat.astype(np.int32)
+
             if(x_hat_int[0]<0 or x_hat_int[1]<0) or (x_hat_int[0] >= img_h or x_hat_int[1]>= img_w):
                 continue#이미지 밖으로 투영된 점
             if type(Extracted_feature[idx+1][(x_hat_int[0], x_hat_int[1])]) is not np.ndarray:
                 similarity_map[y, x, idx] =0
                 continue
-
+            # print(idx+1,x_hat_int[0], x_hat_int[1])
+            please_good_image[x_hat_int[0], x_hat_int[1]] = saved_color_imgs[0][y, x]
             f_g_x_r = Extracted_feature[0][(y, x)]#ref이미지에 대한 dense sift입니다.
             f_g_x_hat = Extracted_feature[idx+1][(x_hat_int[0],x_hat_int[1])]  # ref이미지에 대한 dense sift입니다.
 
             dist_2 =Se_distance(f_g_x_r, f_g_x_hat, 0.35)
             similarity_map[y, x, idx] = dist_2
+    max_value =  np.max(similarity_map[:,:,idx])
+    if max_value !=0:
+        test_good_image = (similarity_map[:,:,idx]/max_value*255).astype(np.uint8)
+        print(test_good_image.shape)
+        cv2.imshow("test",please_good_image)
+        cv2.imshow("test2", test_good_image)
+        cv2.waitKey(0)
+
 
 #탐생방향에 대한 파라미터
 scan_neighbor = [[0,-1],[-1,0]],[[0,1],[1,0]]
@@ -175,7 +211,8 @@ for scan_vec in [1,0]:
                 #각 소스 이미지마자 후보점들을 추가합니다.
                 for neigh_point_delta in scan_neighbor[scan_vec]:
                     x_ref_neigh = np.float64([y, x]) + np.float64(neigh_point_delta)
-                    x_hat_neigh = x_ref_neigh + np.flip(correspondence_map[idx][int(x_ref_neigh[0]), int(x_ref_neigh[1])])#동적인 물체 주변에서는 완전히 이상한 값이 나옴
+                    x_hat_neigh = np.array([correspondence_map[idx,int(x_ref_neigh[0]), int(x_ref_neigh[1]),0],
+                                            correspondence_map[idx,int(x_ref_neigh[0]), int(x_ref_neigh[1]),1]])#동적인 물체 주변에서는 완전히 이상한 값이 나옴
                     x_hat_cand = x_hat_neigh - np.float64(neigh_point_delta)
                     x_hat_cand = x_hat_cand.astype(np.int32)
                     x_hats_in_source.append(x_hat_cand)#후보점들을 추가합니다.
@@ -210,7 +247,7 @@ for scan_vec in [1,0]:
                     good_x_hat.append([point[0], point[1]])
             if type(x_hats_denseSIFT) is not np.ndarray:
                 continue#후보 feature들이 모두 자격이 없는경우
-            dbscan_model = DBSCAN(eps=0.1,min_samples=1)
+            dbscan_model = DBSCAN(eps=0.5, min_samples=1)
             clustering = dbscan_model.fit(DBSCAN_features)
             clustering_label = clustering.labels_
             # print(clustering_label)
@@ -248,7 +285,7 @@ for scan_vec in [1,0]:
 
             for idx, source_img in enumerate(source_imgs):
                 #각 소스 이미지마자 후보점들을 추가합니다.
-                cand_point = np.float64([y, x])+ np.flip(correspondence_map[idx][y, x])
+                cand_point = correspondence_map[idx, y, x]
                 if (cand_point[0] < 0 or cand_point[0] >= img_h) or (cand_point[1] < 0 or cand_point[1] >= img_w):
                     continue
                 d = Sf_distance2(np.float64([x,y,1]),np.float64([cand_point[1],cand_point[0],1]),fundamental_mats[idx])
@@ -262,8 +299,8 @@ for scan_vec in [1,0]:
             final_s_x = np.exp(-sum_score*sum_score/(2*new_sigma_3*new_sigma_3))
             #물체의 경계주변에서는 경쟁자 패치가 잘 안먹힘. 그래서 fundamental이 잘먹힘
             M_xr = 0
-            # if have_edge_test[y,x] ==255: #해당패치가 엣지를 가지고 있다면?
-            if False:
+            if have_edge_test[y,x] ==255: #해당패치가 엣지를 가지고 있다면?
+            # if False:
                 M_xr = (1-0.5)*Se_distance(Extracted_feature[0][(y, x)], center_of_denseSIFT, 0.45) + \
                        0.5*final_s_x
             else : #엣지가 없다면 굳이 기하학 따질 필요없음
@@ -298,8 +335,8 @@ for scan_vec in [1,0]:
                         # 실제 후보점을 좌표로 넣고
                         # print(x_hats_in_source)
                         # print(max_source_cand_i)
-                        new_point = np.flip(x_hats[source_ind][max_source_cand_i] - np.float64([y,x]))
-                        correspondence_map[source_ind][y,x] = new_point
+                        # new_point = np.flip(x_hats[source_ind][max_source_cand_i] - np.float64([y,x]))
+                        correspondence_map[source_ind,y,x] = x_hats[source_ind][max_source_cand_i]
                         neigh_point_delta = scan_neighbor[scan_vec][max_source_cand_i]
                         x_ref_neigh = np.float64([y, x]) + np.float64(neigh_point_delta)
                         # 신뢰도는 이웃했던 정적인점의 신뢰도를 대신해서 넣는다.
